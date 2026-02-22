@@ -116,7 +116,7 @@ public class ReplaceLibrariesWithApiPluginTest implements RewriteTest {
                       <dependency>
                         <groupId>io.jenkins.tools.bom</groupId>
                         <artifactId>bom-${jenkins.baseline}.x</artifactId>
-                        <version>4051.v78dce3ce8b_d6</version>
+                        <version>4570.v1b_c718dd3b_1e</version>
                         <scope>import</scope>
                         <type>pom</type>
                       </dependency>
