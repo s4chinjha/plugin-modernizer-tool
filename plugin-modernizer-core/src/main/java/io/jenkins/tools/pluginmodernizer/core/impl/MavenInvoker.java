@@ -209,53 +209,118 @@ public class MavenInvoker {
     @SuppressWarnings("OS_COMMAND_INJECTION")
     @Nullable
     private Path detectMavenHome() {
-        try {
-            String os = System.getProperty("os.name").toLowerCase();
+        String os = System.getProperty("os.name");
+        if (os == null) {
+            os = "";
+        }
 
-            Process process;
-            if (os.contains("win")) {
-                process = new ProcessBuilder("where", "mvn").start();
-            } else {
-                process = new ProcessBuilder("which", "mvn").start();
-            }
+        ProcessBuilder processBuilder;
+        if (os.toLowerCase().contains("win")) {
+            processBuilder = new ProcessBuilder("where", "mvn");
+        } else {
+            processBuilder = new ProcessBuilder("which", "mvn");
+        }
+        processBuilder.redirectErrorStream(true);
+
+        String mvnPath = null;
+        StringBuilder output = new StringBuilder();
+        Process process = null;
+
+        try {
+            process = processBuilder.start();
 
             try (BufferedReader reader =
                     new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String mvnPath = reader.readLine();
-                process.waitFor();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (output.length() > 0) {
+                        output.append('\n');
+                    }
+                    output.append(line);
 
-                if (mvnPath == null || mvnPath.isEmpty()) {
-                    return null;
+                    if (mvnPath == null && !line.isBlank()) {
+                        mvnPath = line;
+                    }
                 }
-
-                Path mvn = Path.of(mvnPath);
-                Path binDir = mvn.getParent();
-                if (binDir == null) {
-                    return null;
-                }
-                return binDir.getParent();
             }
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0 || mvnPath == null || mvnPath.isBlank()) {
+                LOG.debug("Maven not found in PATH (exitCode=" + exitCode + ", output=" + sanitize(output.toString())
+                        + ")");
+                return null;
+            }
+
+            Path mvn = Path.of(mvnPath).toRealPath();
+            Path binDir = mvn.getParent();
+            if (binDir == null) {
+                LOG.debug("Failed to detect Maven home from mvn path (no parent): " + sanitize(mvnPath));
+                return null;
+            }
+
+            Path mavenHome = binDir.getParent();
+            if (mavenHome == null) {
+                LOG.debug("Failed to detect Maven home from mvn path (no grandparent): " + sanitize(mvnPath));
+                return null;
+            }
+            return mavenHome;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.debug("Interrupted while detecting Maven from PATH", e);
+            return null;
         } catch (Exception e) {
             LOG.debug("Failed to detect Maven from PATH", e);
             return null;
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
         }
     }
 
+    private boolean isValidMavenHome(Path mavenHome) {
+        if (mavenHome == null || !Files.isDirectory(mavenHome)) {
+            return false;
+        }
+
+        Path mvnUnix = mavenHome.resolve("bin/mvn");
+        Path mvnCmd = mavenHome.resolve("bin/mvn.cmd");
+        Path mvnBat = mavenHome.resolve("bin/mvn.bat");
+        return mvnUnix.toFile().canExecute()
+                || mvnCmd.toFile().exists()
+                || mvnBat.toFile().exists();
+    }
+
+    private String sanitize(String input) {
+        return input == null ? null : input.replaceAll("[\\r\\n]", "");
+    }
+
     private Path getEffectiveMavenHome() {
-        Path mavenHome = config.getMavenHome();
-        if (mavenHome != null) {
-            return mavenHome;
+        Path configured = config.getConfiguredMavenHome();
+        if (configured != null) {
+            if (isValidMavenHome(configured)) {
+                return configured;
+            }
+            LOG.warn("Configured Maven home is invalid: " + sanitize(configured.toString())
+                    + ". Falling back to PATH detection.");
+        }
+
+        Path cachedDetected = config.getDetectedMavenHome();
+        if (cachedDetected != null) {
+            if (isValidMavenHome(cachedDetected)) {
+                return cachedDetected;
+            }
+            LOG.debug("Cached detected Maven home is invalid: " + sanitize(cachedDetected.toString()));
         }
 
         Path detected = detectMavenHome();
-        if (detected != null) {
-            LOG.info("Detected Maven home from PATH: {}", detected);
+        if (detected != null && isValidMavenHome(detected)) {
+            LOG.info("Detected Maven home from PATH: " + sanitize(detected.toString()));
             config.setMavenHome(detected);
             return detected;
         }
 
-        throw new ModernizerException(
-                "Neither MAVEN_HOME nor M2_HOME environment variables are set and Maven could not be detected from PATH. Or use --maven-home");
+        throw new ModernizerException("Maven not found. Please set MAVEN_HOME or ensure 'mvn' is available in PATH.");
     }
 
     /**
@@ -289,7 +354,7 @@ public class MavenInvoker {
         request.setMavenHome(getEffectiveMavenHome().toFile());
         request.setPomFile(plugin.getLocalRepository().resolve("pom.xml").toFile());
         request.addArgs(List.of(args));
-        if (config.isDebug()) {
+        if (Config.isDebug()) {
             request.addArg("-X");
         }
         return request;
@@ -307,7 +372,7 @@ public class MavenInvoker {
                 plugin.addError("Maven generic exception occurred", result.getExecutionException());
             } else {
                 String errorMessage;
-                if (config.isDebug()) {
+                if (Config.isDebug()) {
                     errorMessage = "Build failed with code: " + result.getExitCode();
                 } else {
                     errorMessage = "Build failed";
