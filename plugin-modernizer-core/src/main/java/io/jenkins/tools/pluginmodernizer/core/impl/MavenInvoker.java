@@ -10,7 +10,10 @@ import io.jenkins.tools.pluginmodernizer.core.model.PluginProcessingException;
 import io.jenkins.tools.pluginmodernizer.core.model.Recipe;
 import io.jenkins.tools.pluginmodernizer.core.utils.JdkFetcher;
 import jakarta.inject.Inject;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -55,7 +58,7 @@ public class MavenInvoker {
         AtomicReference<String> version = new AtomicReference<>();
         try {
             InvocationRequest request = new DefaultInvocationRequest();
-            request.setMavenHome(config.getMavenHome().toFile());
+            request.setMavenHome(getEffectiveMavenHome().toFile());
             request.setBatchMode(true);
             request.addArg("-q");
             request.addArg("--version");
@@ -181,13 +184,16 @@ public class MavenInvoker {
      * @throws IllegalArgumentException if the Maven home directory is not set or invalid.
      */
     public void validateMaven() {
-        Path mavenHome = config.getMavenHome();
-        if (mavenHome == null) {
-            throw new ModernizerException(
-                    "Neither MAVEN_HOME nor M2_HOME environment variables are set. Or use --maven-home if running from CLI");
-        }
+        Path mavenHome = getEffectiveMavenHome();
 
-        if (!Files.isDirectory(mavenHome) || !Files.isExecutable(mavenHome.resolve("bin/mvn"))) {
+        Path mvnUnix = mavenHome.resolve("bin/mvn");
+        Path mvnCmd = mavenHome.resolve("bin/mvn.cmd");
+        Path mvnBat = mavenHome.resolve("bin/mvn.bat");
+
+        if (!Files.isDirectory(mavenHome)
+                || (!mvnUnix.toFile().canExecute()
+                        && !mvnCmd.toFile().exists()
+                        && !mvnBat.toFile().exists())) {
             throw new ModernizerException("Invalid Maven home directory at '%s'.".formatted(mavenHome));
         }
 
@@ -198,6 +204,58 @@ public class MavenInvoker {
         if (!Files.isDirectory(mavenLocalRepo)) {
             throw new ModernizerException("Invalid Maven local repository at '%s'.".formatted(mavenLocalRepo));
         }
+    }
+
+    @SuppressWarnings("OS_COMMAND_INJECTION")
+    @Nullable
+    private Path detectMavenHome() {
+        try {
+            String os = System.getProperty("os.name").toLowerCase();
+
+            Process process;
+            if (os.contains("win")) {
+                process = new ProcessBuilder("where", "mvn").start();
+            } else {
+                process = new ProcessBuilder("which", "mvn").start();
+            }
+
+            try (BufferedReader reader =
+                    new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String mvnPath = reader.readLine();
+                process.waitFor();
+
+                if (mvnPath == null || mvnPath.isEmpty()) {
+                    return null;
+                }
+
+                Path mvn = Path.of(mvnPath);
+                Path binDir = mvn.getParent();
+                if (binDir == null) {
+                    return null;
+                }
+                return binDir.getParent();
+            }
+        } catch (Exception e) {
+            LOG.debug("Failed to detect Maven from PATH", e);
+            return null;
+        }
+    }
+
+    private Path getEffectiveMavenHome() {
+        Path mavenHome = config.getMavenHome();
+        if (mavenHome != null) {
+            return mavenHome;
+        }
+
+        Path detected = detectMavenHome();
+        if (detected != null) {
+            LOG.info("Detected Maven home from PATH: {}", detected);
+            config.setMavenHome(detected);
+            return detected;
+        }
+
+        throw new ModernizerException(
+                "Neither MAVEN_HOME nor M2_HOME environment variables are set and Maven could not be detected from PATH. Or use --maven-home");
     }
 
     /**
@@ -228,7 +286,7 @@ public class MavenInvoker {
      */
     private InvocationRequest createInvocationRequest(Plugin plugin, String... args) {
         InvocationRequest request = new DefaultInvocationRequest();
-        request.setMavenHome(config.getMavenHome().toFile());
+        request.setMavenHome(getEffectiveMavenHome().toFile());
         request.setPomFile(plugin.getLocalRepository().resolve("pom.xml").toFile());
         request.addArgs(List.of(args));
         if (config.isDebug()) {
@@ -244,7 +302,7 @@ public class MavenInvoker {
      */
     private void handleInvocationResult(Plugin plugin, InvocationResult result) {
         if (result.getExitCode() != 0) {
-            LOG.error(plugin.getMarker(), "Build fail with code: {}", result.getExitCode());
+            LOG.error(plugin.getMarker(), "Build failed with code: {}", result.getExitCode());
             if (result.getExecutionException() != null) {
                 plugin.addError("Maven generic exception occurred", result.getExecutionException());
             } else {

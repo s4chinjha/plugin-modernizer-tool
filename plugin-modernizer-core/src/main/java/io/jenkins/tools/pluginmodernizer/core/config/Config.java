@@ -26,6 +26,7 @@ public class Config {
     private final URL githubApiUrl;
     private final Path cachePath;
     private final Path mavenHome;
+    private volatile Path detectedMavenHome;
     private final Path mavenLocalRepo;
     private final boolean skipMetadata;
     private final boolean overrideOptOutPlugins;
@@ -167,10 +168,15 @@ public class Config {
     }
 
     public Path getMavenHome() {
-        if (mavenHome == null) {
+        Path effectiveMavenHome = detectedMavenHome != null ? detectedMavenHome : mavenHome;
+        if (effectiveMavenHome == null) {
             return null;
         }
-        return mavenHome.toAbsolutePath();
+        return effectiveMavenHome.toAbsolutePath();
+    }
+
+    public void setMavenHome(Path mavenHome) {
+        this.detectedMavenHome = mavenHome;
     }
 
     public Path getMavenLocalRepo() {
