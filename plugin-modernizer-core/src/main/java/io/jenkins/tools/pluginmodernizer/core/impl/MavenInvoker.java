@@ -10,7 +10,10 @@ import io.jenkins.tools.pluginmodernizer.core.model.PluginProcessingException;
 import io.jenkins.tools.pluginmodernizer.core.model.Recipe;
 import io.jenkins.tools.pluginmodernizer.core.utils.JdkFetcher;
 import jakarta.inject.Inject;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -55,7 +58,7 @@ public class MavenInvoker {
         AtomicReference<String> version = new AtomicReference<>();
         try {
             InvocationRequest request = new DefaultInvocationRequest();
-            request.setMavenHome(config.getMavenHome().toFile());
+            request.setMavenHome(getEffectiveMavenHome().toFile());
             request.setBatchMode(true);
             request.addArg("-q");
             request.addArg("--version");
@@ -181,13 +184,16 @@ public class MavenInvoker {
      * @throws IllegalArgumentException if the Maven home directory is not set or invalid.
      */
     public void validateMaven() {
-        Path mavenHome = config.getMavenHome();
-        if (mavenHome == null) {
-            throw new ModernizerException(
-                    "Neither MAVEN_HOME nor M2_HOME environment variables are set. Or use --maven-home if running from CLI");
-        }
+        Path mavenHome = getEffectiveMavenHome();
 
-        if (!Files.isDirectory(mavenHome) || !Files.isExecutable(mavenHome.resolve("bin/mvn"))) {
+        Path mvnUnix = mavenHome.resolve("bin/mvn");
+        Path mvnCmd = mavenHome.resolve("bin/mvn.cmd");
+        Path mvnBat = mavenHome.resolve("bin/mvn.bat");
+
+        if (!Files.isDirectory(mavenHome)
+                || (!mvnUnix.toFile().canExecute()
+                        && !mvnCmd.toFile().exists()
+                        && !mvnBat.toFile().exists())) {
             throw new ModernizerException("Invalid Maven home directory at '%s'.".formatted(mavenHome));
         }
 
@@ -198,6 +204,123 @@ public class MavenInvoker {
         if (!Files.isDirectory(mavenLocalRepo)) {
             throw new ModernizerException("Invalid Maven local repository at '%s'.".formatted(mavenLocalRepo));
         }
+    }
+
+    @SuppressWarnings("OS_COMMAND_INJECTION")
+    @Nullable
+    private Path detectMavenHome() {
+        String os = System.getProperty("os.name");
+        if (os == null) {
+            os = "";
+        }
+
+        ProcessBuilder processBuilder;
+        if (os.toLowerCase().contains("win")) {
+            processBuilder = new ProcessBuilder("where", "mvn");
+        } else {
+            processBuilder = new ProcessBuilder("which", "mvn");
+        }
+        processBuilder.redirectErrorStream(true);
+
+        String mvnPath = null;
+        StringBuilder output = new StringBuilder();
+        Process process = null;
+
+        try {
+            process = processBuilder.start();
+
+            try (BufferedReader reader =
+                    new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (output.length() > 0) {
+                        output.append('\n');
+                    }
+                    output.append(line);
+
+                    if (mvnPath == null && !line.isBlank()) {
+                        mvnPath = line;
+                    }
+                }
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0 || mvnPath == null || mvnPath.isBlank()) {
+                LOG.debug("Maven not found in PATH (exitCode=" + exitCode + ", output=" + sanitize(output.toString())
+                        + ")");
+                return null;
+            }
+
+            Path mvn = Path.of(mvnPath).toRealPath();
+            Path binDir = mvn.getParent();
+            if (binDir == null) {
+                LOG.debug("Failed to detect Maven home from mvn path (no parent): " + sanitize(mvnPath));
+                return null;
+            }
+
+            Path mavenHome = binDir.getParent();
+            if (mavenHome == null) {
+                LOG.debug("Failed to detect Maven home from mvn path (no grandparent): " + sanitize(mvnPath));
+                return null;
+            }
+            return mavenHome;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.debug("Interrupted while detecting Maven from PATH", e);
+            return null;
+        } catch (Exception e) {
+            LOG.debug("Failed to detect Maven from PATH", e);
+            return null;
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
+        }
+    }
+
+    private boolean isValidMavenHome(Path mavenHome) {
+        if (mavenHome == null || !Files.isDirectory(mavenHome)) {
+            return false;
+        }
+
+        Path mvnUnix = mavenHome.resolve("bin/mvn");
+        Path mvnCmd = mavenHome.resolve("bin/mvn.cmd");
+        Path mvnBat = mavenHome.resolve("bin/mvn.bat");
+        return mvnUnix.toFile().canExecute()
+                || mvnCmd.toFile().exists()
+                || mvnBat.toFile().exists();
+    }
+
+    private String sanitize(String input) {
+        return input == null ? null : input.replaceAll("[\\r\\n]", "");
+    }
+
+    private Path getEffectiveMavenHome() {
+        Path configured = config.getConfiguredMavenHome();
+        if (configured != null) {
+            if (isValidMavenHome(configured)) {
+                return configured;
+            }
+            LOG.warn("Configured Maven home is invalid: " + sanitize(configured.toString())
+                    + ". Falling back to PATH detection.");
+        }
+
+        Path cachedDetected = config.getDetectedMavenHome();
+        if (cachedDetected != null) {
+            if (isValidMavenHome(cachedDetected)) {
+                return cachedDetected;
+            }
+            LOG.debug("Cached detected Maven home is invalid: " + sanitize(cachedDetected.toString()));
+        }
+
+        Path detected = detectMavenHome();
+        if (detected != null && isValidMavenHome(detected)) {
+            LOG.info("Detected Maven home from PATH: " + sanitize(detected.toString()));
+            config.setMavenHome(detected);
+            return detected;
+        }
+
+        throw new ModernizerException("Maven not found. Please set MAVEN_HOME or ensure 'mvn' is available in PATH.");
     }
 
     /**
@@ -228,10 +351,10 @@ public class MavenInvoker {
      */
     private InvocationRequest createInvocationRequest(Plugin plugin, String... args) {
         InvocationRequest request = new DefaultInvocationRequest();
-        request.setMavenHome(config.getMavenHome().toFile());
+        request.setMavenHome(getEffectiveMavenHome().toFile());
         request.setPomFile(plugin.getLocalRepository().resolve("pom.xml").toFile());
         request.addArgs(List.of(args));
-        if (config.isDebug()) {
+        if (Config.isDebug()) {
             request.addArg("-X");
         }
         return request;
@@ -244,12 +367,12 @@ public class MavenInvoker {
      */
     private void handleInvocationResult(Plugin plugin, InvocationResult result) {
         if (result.getExitCode() != 0) {
-            LOG.error(plugin.getMarker(), "Build fail with code: {}", result.getExitCode());
+            LOG.error(plugin.getMarker(), "Build failed with code: {}", result.getExitCode());
             if (result.getExecutionException() != null) {
                 plugin.addError("Maven generic exception occurred", result.getExecutionException());
             } else {
                 String errorMessage;
-                if (config.isDebug()) {
+                if (Config.isDebug()) {
                     errorMessage = "Build failed with code: " + result.getExitCode();
                 } else {
                     errorMessage = "Build failed";

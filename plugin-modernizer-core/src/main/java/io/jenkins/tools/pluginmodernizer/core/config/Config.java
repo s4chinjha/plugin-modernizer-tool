@@ -1,5 +1,6 @@
 package io.jenkins.tools.pluginmodernizer.core.config;
 
+import edu.umd.cs.findbugs.annotations.Nullable;
 import io.jenkins.tools.pluginmodernizer.core.model.Plugin;
 import io.jenkins.tools.pluginmodernizer.core.model.Recipe;
 import java.net.URL;
@@ -26,6 +27,7 @@ public class Config {
     private final URL githubApiUrl;
     private final Path cachePath;
     private final Path mavenHome;
+    private volatile Path detectedMavenHome;
     private final Path mavenLocalRepo;
     private final boolean skipMetadata;
     private final boolean overrideOptOutPlugins;
@@ -167,10 +169,33 @@ public class Config {
     }
 
     public Path getMavenHome() {
-        if (mavenHome == null) {
-            return null;
+        if (mavenHome != null) {
+            return mavenHome.toAbsolutePath();
         }
-        return mavenHome.toAbsolutePath();
+
+        if (detectedMavenHome != null) {
+            return detectedMavenHome.toAbsolutePath();
+        }
+
+        return null;
+    }
+
+    /**
+     * Maven home explicitly configured via CLI/env (does not include detected value).
+     */
+    public @Nullable Path getConfiguredMavenHome() {
+        return mavenHome == null ? null : mavenHome.toAbsolutePath();
+    }
+
+    /**
+     * Maven home detected from PATH and cached for subsequent use.
+     */
+    public @Nullable Path getDetectedMavenHome() {
+        return detectedMavenHome == null ? null : detectedMavenHome.toAbsolutePath();
+    }
+
+    public void setMavenHome(Path mavenHome) {
+        this.detectedMavenHome = mavenHome;
     }
 
     public Path getMavenLocalRepo() {
