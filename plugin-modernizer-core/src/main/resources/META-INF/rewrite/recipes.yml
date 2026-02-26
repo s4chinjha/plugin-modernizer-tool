@@ -256,9 +256,6 @@ tags: ['dependencies', 'migration']
 recipeList:
   - org.openrewrite.apache.commons.lang.ApacheCommonsStringUtilsRecipes
   - org.openrewrite.apache.commons.lang.IsNotEmptyToJdk
-  - org.openrewrite.apache.commons.lang.IsEmptyToJdk
-  - org.openrewrite.apache.commons.lang.EqualsIgnoreCaseToJdk
-  - org.openrewrite.apache.commons.lang.ObjectsEqualsToJdk
   - org.openrewrite.java.RemoveUnusedImports
 ---
 type: specs.openrewrite.org/v1beta/recipe
