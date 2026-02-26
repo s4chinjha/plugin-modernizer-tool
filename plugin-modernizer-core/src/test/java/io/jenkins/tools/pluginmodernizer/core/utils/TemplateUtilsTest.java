@@ -1,6 +1,7 @@
 package io.jenkins.tools.pluginmodernizer.core.utils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -853,6 +854,46 @@ public class TemplateUtilsTest {
         assertTrue(
                 result.contains("This pull request upgrades `Apache Commons Lang 2` to `Apache Commons Lang 3`"),
                 "Description");
+    }
+
+    @Test
+    public void testFriendlyPrTitleMigrateCommonsLangToJdkApi() {
+
+        // Mocks
+        Plugin plugin = mock(Plugin.class);
+        Recipe recipe = mock(Recipe.class);
+
+        doReturn("io.jenkins.tools.pluginmodernizer.MigrateCommonsLangToJdkApi")
+                .when(recipe)
+                .getName();
+
+        // Test
+        String result = TemplateUtils.renderPullRequestTitle(plugin, recipe);
+
+        // Assert
+        assertNotNull(result);
+        assertTrue(result.contains("commons-lang"));
+        assertEquals("Migrate commons-lang usage to JDK APIs", result);
+    }
+
+    @Test
+    public void testFriendlyPrBodyMigrateCommonsLangToJdkApi() {
+
+        // Mocks
+        Plugin plugin = mock(Plugin.class);
+        Recipe recipe = mock(Recipe.class);
+
+        doReturn("io.jenkins.tools.pluginmodernizer.MigrateCommonsLangToJdkApi")
+                .when(recipe)
+                .getName();
+
+        // Test
+        String result = TemplateUtils.renderPullRequestBody(plugin, recipe);
+
+        // Assert
+        assertNotNull(result);
+        assertTrue(result.contains("commons-lang"));
+        assertTrue(result.contains("standard JDK APIs"));
     }
 
     @Test

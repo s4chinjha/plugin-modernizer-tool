@@ -3507,6 +3507,94 @@ public class DeclarativeRecipesTest implements RewriteTest {
     }
 
     @Test
+    void migrateCommonsLangToJdkApi() {
+        rewriteRun(
+                spec -> {
+                    var parser = JavaParser.fromJavaVersion().logCompilationWarningsAndErrors(true);
+
+                    collectRewriteTestDependencies().forEach(parser::addClasspathEntry);
+
+                    spec.recipeFromResource(
+                                    "/META-INF/rewrite/recipes.yml",
+                                    "io.jenkins.tools.pluginmodernizer.MigrateCommonsLangToJdkApi")
+                            .parser(parser);
+                },
+                // Stub
+                java("""
+                    package org.apache.commons.lang3;
+                    public class StringUtils {
+                        public static String defaultString(String str) {
+                            return str == null ? "" : str;
+                        }
+                        public static String defaultString(String str, String defaultStr) {
+                            return str == null ? defaultStr : str;
+                        }
+                    public static boolean isNotEmpty(String str) {
+                      return str != null && !str.isEmpty();
+                    }
+                    }
+                    """),
+                // Input → Output
+                java("""
+                    import org.apache.commons.lang3.StringUtils;
+
+                    class MyComponent {
+                        public String getDefault(String input) {
+                            return StringUtils.defaultString(input);
+                        }
+                        public String getDefaultWithFallback(String input) {
+                            return StringUtils.defaultString(input, "N/A");
+                        }
+                    }
+                    """, """
+                    import java.util.Objects;
+
+                    class MyComponent {
+                        public String getDefault(String input) {
+                            return Objects.toString(input, "");
+                        }
+                        public String getDefaultWithFallback(String input) {
+                            return Objects.toString(input, "N/A");
+                        }
+                    }
+                      """),
+                java("""
+                      import org.apache.commons.lang3.StringUtils;
+
+                      class Test {
+                        boolean check(String str) {
+                          return StringUtils.isNotEmpty(str);
+                        }
+                      }
+                      """, """
+                      class Test {
+                        boolean check(String str) {
+                          return str != null && !str.isEmpty();
+                        }
+                      }
+                    """));
+    }
+
+    @Test
+    void noChangeWhenNoCommonsLang() {
+        rewriteRun(
+                spec -> {
+                    var parser = JavaParser.fromJavaVersion().logCompilationWarningsAndErrors(true);
+                    collectRewriteTestDependencies().forEach(parser::addClasspathEntry);
+
+                    spec.recipeFromResource(
+                                    "/META-INF/rewrite/recipes.yml",
+                                    "io.jenkins.tools.pluginmodernizer.MigrateCommonsLangToJdkApi")
+                            .parser(parser);
+                },
+                java("""
+                      class Test {
+                        String s = "hello";
+                      }
+                      """));
+    }
+
+    @Test
     void migrateToJUnit5() {
         rewriteRun(
                 spec -> {
