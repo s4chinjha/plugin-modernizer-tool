@@ -249,6 +249,16 @@ recipeList:
   - io.jenkins.tools.pluginmodernizer.core.recipes.MigrateToJenkinsBaseLineProperty
 ---
 type: specs.openrewrite.org/v1beta/recipe
+name: io.jenkins.tools.pluginmodernizer.MigrateCommonsLangToJdkApi
+displayName: Migrate commons-lang usage to JDK APIs
+description: Replace commons-lang utility methods with modern JDK API equivalents using OpenRewrite.
+tags: ['dependencies', 'migration']
+recipeList:
+  - org.openrewrite.apache.commons.lang.ApacheCommonsStringUtilsRecipes
+  - org.openrewrite.apache.commons.lang.IsNotEmptyToJdk
+  - org.openrewrite.java.RemoveUnusedImports
+---
+type: specs.openrewrite.org/v1beta/recipe
 name: io.jenkins.tools.pluginmodernizer.AddCodeOwner
 displayName: Add CODEOWNERS file
 description: Adds a CODEOWNERS file to a Jenkins plugin.
