@@ -20,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.intellij.lang.annotations.Language;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -3058,6 +3059,7 @@ public class DeclarativeRecipesTest implements RewriteTest {
     }
 
     @Test
+    @Disabled("Depends on availability of plugin in the bom")
     void replaceLibrariesByApiPluginWithBom() {
         rewriteRun(
                 spec -> spec.recipeFromResource(
