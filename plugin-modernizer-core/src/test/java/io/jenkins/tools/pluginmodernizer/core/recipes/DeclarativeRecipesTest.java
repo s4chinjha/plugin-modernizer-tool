@@ -3612,11 +3612,21 @@ public class DeclarativeRecipesTest implements RewriteTest {
                           <groupId>io.jenkins.plugins</groupId>
                           <artifactId>empty</artifactId>
                           <version>1.0.0-SNAPSHOT</version>
+                          <dependencyManagement>
+                            <dependencies>
+                              <dependency>
+                                <groupId>io.jenkins.tools.bom</groupId>
+                                <artifactId>bom-2.528.x</artifactId>
+                                <version>6098.v29a_dff8a_0c19</version>
+                                <type>pom</type>
+                                <scope>import</scope>
+                              </dependency>
+                            </dependencies>
+                          </dependencyManagement>
                           <dependencies>
                             <dependency>
                               <groupId>org.jenkins-ci.plugins</groupId>
                               <artifactId>jackson2-api</artifactId>
-                              <version>2.17.0-389.va_5c7e45cd806</version>
                             </dependency>
                           </dependencies>
                           <repositories>
@@ -3633,11 +3643,21 @@ public class DeclarativeRecipesTest implements RewriteTest {
                           <groupId>io.jenkins.plugins</groupId>
                           <artifactId>empty</artifactId>
                           <version>1.0.0-SNAPSHOT</version>
+                          <dependencyManagement>
+                            <dependencies>
+                              <dependency>
+                                <groupId>io.jenkins.tools.bom</groupId>
+                                <artifactId>bom-2.528.x</artifactId>
+                                <version>6098.v29a_dff8a_0c19</version>
+                                <type>pom</type>
+                                <scope>import</scope>
+                              </dependency>
+                            </dependencies>
+                          </dependencyManagement>
                           <dependencies>
                             <dependency>
                               <groupId>io.jenkins.plugins</groupId>
                               <artifactId>jackson3-api</artifactId>
-                              <version>3.1.0-64.v37e742c35905</version>
                             </dependency>
                           </dependencies>
                           <repositories>
