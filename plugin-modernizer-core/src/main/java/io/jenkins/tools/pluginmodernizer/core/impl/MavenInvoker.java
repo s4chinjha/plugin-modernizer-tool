@@ -125,8 +125,11 @@ public class MavenInvoker {
         goals.add("-Dmaven.antrun.skip=true");
         goals.add("-Dmaven.repo.local=%s".formatted(config.getMavenLocalRepo()));
         goals.add("-Drewrite.activeRecipes=" + recipe.getName());
-        goals.add("-Drewrite.recipeArtifactCoordinates=io.jenkins.plugin-modernizer:plugin-modernizer-core:"
-                + config.getVersion());
+        String recipeArtifactCoordinates = "io.jenkins.plugin-modernizer:plugin-modernizer-core:" + config.getVersion();
+        if ("io.jenkins.tools.pluginmodernizer.MigrateJackson2To3".equals(recipe.getName())) {
+            recipeArtifactCoordinates += ",org.openrewrite.recipe:rewrite-jackson:RELEASE";
+        }
+        goals.add("-Drewrite.recipeArtifactCoordinates=" + recipeArtifactCoordinates);
         return goals.toArray(String[]::new);
     }
 
